@@ -1,0 +1,18 @@
+<screen nanoTrigger="true"
+    permanentTrigger="true"
+    scheduledTrigger="true"
+    scheduledDateTrigger="true"
+    voiceTrigger="true">
+
+    <text label="City or Zip/Postal Code" name="location" default="" validation="" required="true" errorMessage="" />
+
+    <text label="Minutes to wait before exiting ( 0 = never)" name="exitminutes" default="0" validation="^[\d]+$" required="true" errorMessage="Please only enter numberic values" />
+
+    <select label="Exit immediately if weather has not changed" name="changes" type="one" required="true">
+        <option label="Yes" key="Y" checked="true"/>
+        <option label="No" key="N" checked="false"/>
+    </select>
+
+    <button label="Visit the official Earpop home page" link="http://www.nonlocal.ca/earpop/" />
+
+</screen>

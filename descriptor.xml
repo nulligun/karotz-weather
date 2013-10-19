@@ -1,5 +1,5 @@
 <descriptor>
-    <version>1.2.2</version>
+    <version>1.4.2</version>
     <accesses>
     	<access>button</access>
         <access>http</access>

@@ -1,10 +1,12 @@
 include("util.js");
 include("weather.js");
 
-//var karotz_ip="192.168.1.22";
+//var karotz_ip="192.168.1.110";
 var karotz_ip="localhost";
 
 var errorRaised = false;
+var resetCompleted = false;
+var startedIdling = false;
 var spokenError = "";
 var lastWeatherCode = -1;
 var currentWeatherCode = -1;
@@ -12,6 +14,7 @@ var lastCodeFilename = "last_code.txt";
 var maxRunTime = 0;
 var startTime = 0;
 var lastPingTime = 0;
+var startedSpeaking = false;
 
 var raise_error = function(error_message, color) {
     errorRaised = true;
@@ -30,36 +33,42 @@ var done_speaking = function(event)
     return true; 
 };
 
+var start_speaking = function()
+{
+    startedSpeaking = true;
+    if (errorRaised)
+    {
+        karotz.tts.start("<voice emotion='cross'>" + spokenError + "</voice>", 'en', done_speaking);
+    } 
+    else 
+    {
+        var emote = 'cross';
+        if (semiBadWeatherCodes.indexOf(currentWeatherCode) > -1)
+        {
+            emote = 'sad';
+        } 
+        else if (blandWeatherCodes.indexOf(currentWeatherCode) > -1)
+        {
+            emote = 'calm';
+        }
+        else if (goodWeatherCodes.indexOf(currentWeatherCode) > -1)
+        {
+            emote = 'happy';
+        }
+
+        var weatherString = weatherCodeToText["" + currentWeatherCode];
+        debuglog("emote: " + emote);
+        debuglog("weather string announce: " + weatherString);
+
+        karotz.tts.start("<voice emotion='" + emote + "'>" + weatherString + "</voice>", 'en', done_speaking);
+    }
+}
+
 var speak_and_quit = function(event)
 {
     if ((event == "CANCELLED") || (event == "TERMINATED")) 
     {
-        if (errorRaised)
-        {
-            karotz.tts.start("<voice emotion='cross'>" + spokenError + "</voice>", 'en', done_speaking);
-        } 
-        else 
-        {
-            var emote = 'cross';
-            if (semiBadWeatherCodes.indexOf(currentWeatherCode) > -1)
-            {
-                emote = 'sad';
-            } 
-            else if (blandWeatherCodes.indexOf(currentWeatherCode) > -1)
-            {
-                emote = 'calm';
-            }
-            else if (goodWeatherCodes.indexOf(currentWeatherCode) > -1)
-            {
-                emote = 'happy';
-            }
-
-            var weatherString = weatherCodeToText["" + currentWeatherCode];
-            debuglog("emote: " + emote);
-            debuglog("weather string announce: " + weatherString);
-
-            karotz.tts.start("<voice emotion='" + emote + "'>" + weatherString + "</voice>", 'en', done_speaking);
-        }
+        start_speaking();
     }
 };
 
@@ -201,27 +210,54 @@ var idle = function(event)
         }
     }
 
+    debuglog("idle maxRunTime " + maxRunTime.toString() + " lastPingTime " + lastPingTime.toString() + " curTime " + curTime.toString() + " startTime " + startTime.toString());
+    debuglog("curTime - starTime  = " + (curTime - startTime).toString());
+    debuglog("curTime - lastPingTime = " + (curTime - lastPingTime).toString());
+
     if ((curTime - lastPingTime) > 300000)
     {
+        debuglog("reset ping time");
         lastPingTime = (new Date).getTime();
+        debuglog("about to send ping");
+        // FIXME : The docs have kartoz. prefix but before this was just 'ping'
+        // the 'ping' message never shows up in the debug log. 
         ping();
         debuglog("ping");
     }
 
-    return true;
+    setTimeout(60000, doidle);
 }
+
+var doidle = function() {
+        if (errorRaised)
+        {
+            debuglog("Error was raised, we idled 1 minute, now to the exit stage");
+            exit(); // just exit silently after a minute if there was an error, no talking
+        }
+        debuglog("starting idle from inside idle");
+        idle();  // no error means we wait until he user does some kind of input, button or ears
+    };
 
 var startEarpopManually = function()
 {
     var data = getWeatherData();
     currentWeatherCode = getWeatherCode(data);
     displayWeather(currentWeatherCode, speak_and_quit);
+    setTimeout(5000, function() {
+            if (!startedSpeaking) 
+            {
+                start_speaking();
+                debuglog("Ears did finish turning after 10s, jiggle it or something");
+            } 
+        });
 }
 
 var startEarpopFromScheduler = function()
 {
     // get the last code we saved when the user pressed a button
     var file_data;
+
+    debuglog("Getting lastWeatherCode");
 
     try
     {
@@ -239,12 +275,10 @@ var startEarpopFromScheduler = function()
     }
     else 
     {
-        maxRunTime = 60000;
+        maxRunTime = 203300000;
     }
     startTime = (new Date).getTime();
     lastPingTime = (new Date).getTime();
-
-    debuglog("Last weather code: " + lastWeatherCode);
     
     var data = getWeatherData();
     currentWeatherCode = getWeatherCode(data);
@@ -256,7 +290,7 @@ var startEarpopFromScheduler = function()
     }
     else 
     {
-        announceChangesOnly = "Y"; // Y or N
+        announceChangesOnly = "N"; // Y or N
     }
 
     if (announceChangesOnly == "Y")
@@ -269,26 +303,31 @@ var startEarpopFromScheduler = function()
     }
 
     displayWeather(currentWeatherCode, startIdling);
+    setTimeout(5000, function() {
+            if (!startedIdling) 
+            {
+                debuglog("We started idling due to timeout waiting for displayWeather to finish");
+                startedIdling = true;
+                karotz.button.addListener(buttonListener);
+                idle();
+            } 
+        });
 };
 
 var startIdling = function(event)
 {
+    debuglog("StartIdling: " + event);
     if ((event == "CANCELLED") || (event == "TERMINATED")) 
     {
-        // start listening after we get the weather, just in case we try to invoke speak&quit withou the right data.
-        karotz.button.addListener(buttonListener);
+        if (!startedIdling)
+        {
+            debuglog("We started idling inside startIdling");
+            startedIdling = true;
+            // start listening after we get the weather, just in case we try to invoke speak&quit withou the right data.
+            karotz.button.addListener(buttonListener);
 
-        idle();
-
-        setTimeout(60000, function() {
-            if (errorRaised) 
-            {
-                debuglog("Error was raised, we idled 1 minute, now to the exit stage");
-                exit(); // just exit silently after a minute if there was an error, no talking
-            }
-            idle();  // no error means we wait until he user does some kind of input, button or ears
-            return true; 
-        });
+            idle();
+        }
     }
 };
 
@@ -297,14 +336,21 @@ var resetComplete = function(event)
     debuglog("reset complete:" + event);
     if ((event == "CANCELLED") || (event == "TERMINATED")) 
     {
-        startEarpopFromScheduler();
-    }
+        if (!resetCompleted)
+        {
+            debuglog("We are inside resetComplete doing restetComplete");
+            resetCompleted = true;
+            startEarpopFromScheduler();
+        }
+    } 
     return true;
 };
 
 var onKarotzConnect = function(data) 
 {
-    karotz.led.light("000000");
+    debuglog("Karotz launching 1.4.2");
+    karotz.led.pulse("7f7f7f", 100, -1);
+    //karotz.led.light("7f7f7f");
 
     var launch_type;
     if (karotz_ip == 'localhost')
@@ -313,10 +359,21 @@ var onKarotzConnect = function(data)
     } else {
         launch_type = "SCHEDULER";
     }
+    debuglog("launch_type " + launch_type);
     if (launch_type == "SCHEDULER")
     {
+        debuglog("Scheduler invokation");
         karotz.ears.reset(resetComplete);
+        setTimeout(5000, function() {
+            if (!resetCompleted) 
+            {
+                debuglog("We are forcing reset complete due to timeout");
+                resetCompleted = true;
+                startEarpopFromScheduler();
+            }
+        });
     } else {
+        debuglog("starting earpop manually");
         startEarpopManually();
     }
 };
